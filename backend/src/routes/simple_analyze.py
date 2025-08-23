@@ -5,31 +5,15 @@ from src.services.summarizer_service import summarize
 from src.services.plagiarism_service import check_plagiarism, check
 from src.services.citations_service import validate as validate_citations
 from src.services.factcheck_service import extract_claims, fact_check_claims
+from src.utils.normalizers import (
+    normalize_plagiarism_result,
+    normalize_citations_result,
+    normalize_factcheck_result,
+    safe_call_service
+)
 
 logger = logging.getLogger(__name__)
 simple_analyze_bp = Blueprint("simple_analyze", __name__, url_prefix="/api/simple")
-
-# ------------------ Normalizers ------------------
-
-def _norm_plagiarism(res):
-    if isinstance(res, dict):
-        return {
-            "plagiarism_score": float(res.get("plagiarism_score", 0.0)),
-            "matching_sources": res.get("matching_sources", []) or []
-        }
-    if isinstance(res, (int, float)):
-        v = float(res)
-        if v > 1.0:  # treat as %
-            v = v / 100.0
-        return {"plagiarism_score": v, "matching_sources": []}
-    return {"plagiarism_score": 0.0, "matching_sources": []}
-
-def _norm_list_of_dicts(val):
-    if isinstance(val, list):
-        return [x for x in val if isinstance(x, dict)]
-    return []
-
-# ------------------ Routes ------------------
 
 @simple_analyze_bp.route("/upload", methods=["POST"])
 def analyze_document():
@@ -53,7 +37,7 @@ def analyze_document():
             if not text or len(text.strip()) < 100:
                 return jsonify({"error": "Document text too short"}), 400
 
-            # Run analysis
+            # Run analysis with safe service calls and normalization
             logger.info("Running summarization...")
             try:
                 summary = summarize(text)
@@ -62,53 +46,57 @@ def analyze_document():
                 summary = "Unable to generate summary."
 
             logger.info("Running plagiarism check...")
-            try:
-                plagiarism_result = check_plagiarism(text)
-            except Exception:
-                plagiarism_result = check(text)
-            plagiarism_result = _norm_plagiarism(plagiarism_result)
+            plagiarism_raw = safe_call_service(check_plagiarism, text)
+            if plagiarism_raw is None:
+                plagiarism_raw = safe_call_service(check, text)
+            plagiarism_result = normalize_plagiarism_result(plagiarism_raw)
 
             logger.info("Validating citations...")
-            try:
-                citation_results = validate_citations(text)
-            except Exception:
-                citation_results = []
-            citation_results = _norm_list_of_dicts(citation_results)
+            citation_raw = safe_call_service(validate_citations, text)
+            citation_results = normalize_citations_result(citation_raw)
 
             logger.info("Running fact check...")
+            fact_check_results = []
             try:
                 claims = extract_claims(text)
-                fact_check_results = fact_check_claims(claims) if claims else []
-            except Exception:
-                fact_check_results = []
-            fact_check_results = _norm_list_of_dicts(fact_check_results)
+                if claims:
+                    fact_check_raw = safe_call_service(fact_check_claims, claims)
+                    fact_check_results = normalize_factcheck_result(fact_check_raw)
+            except Exception as e:
+                logger.warning(f"Fact check failed: {e}")
+                fact_check_results = [{"claim": "Service unavailable", "status": "Unverified"}]
 
-            # Format for frontend
-            formatted_citations = [{
-                "reference": (c.get("raw") or c.get("cleaned_title") or "Unknown citation"),
-                "valid": bool(c.get("valid", False))
-            } for c in citation_results]
+            # Format for frontend - ensure consistent structure
+            formatted_citations = []
+            for c in citation_results:
+                formatted_citations.append({
+                    "reference": str(c.get("reference", "Unknown")),
+                    "valid": bool(c.get("valid", False))
+                })
 
-            formatted_facts = [{
-                "claim": f.get("claim", "Unknown claim"),
-                "status": ("Verified" if f.get("status") == "verified"
-                           else "Contradicted" if f.get("status") == "contradicted"
-                           else "Unverified")
-            } for f in fact_check_results]
+            formatted_facts = []
+            for f in fact_check_results:
+                formatted_facts.append({
+                    "claim": str(f.get("claim", "Unknown claim")),
+                    "status": str(f.get("status", "Unverified"))
+                })
 
-            return jsonify({
-                "summary": summary,
-                "plagiarism": plagiarism_result["plagiarism_score"],
-                "plagiarism_details": plagiarism_result["matching_sources"],
+            # Final response with guaranteed structure
+            response = {
+                "summary": str(summary),
+                "plagiarism": float(plagiarism_result.get("plagiarism_score", 0.0)),
+                "plagiarism_details": list(plagiarism_result.get("matching_sources", [])),
                 "citations": formatted_citations,
                 "fact_check": {"facts": formatted_facts},
                 "stats": {
-                    "word_count": word_count,
-                    "plagiarism_percent": plagiarism_result["plagiarism_score"],
+                    "word_count": int(word_count),
+                    "plagiarism_percent": float(plagiarism_result.get("plagiarism_score", 0.0)),
                     "citations_count": len(formatted_citations),
                     "fact_checks_count": len(formatted_facts),
                 }
-            }), 200
+            }
+
+            return jsonify(response), 200
 
         finally:
             if os.path.exists(temp_path):
