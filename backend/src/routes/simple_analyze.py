@@ -12,6 +12,7 @@ simple_analyze_bp = Blueprint("simple_analyze", __name__, url_prefix="/api/simpl
 # ------------------ Normalizers ------------------
 
 def _norm_plagiarism(res):
+    """Normalize plagiarism results to always return proper format."""
     if isinstance(res, dict):
         return {
             "plagiarism_score": float(res.get("plagiarism_score", 0.0)),
@@ -25,9 +26,39 @@ def _norm_plagiarism(res):
     return {"plagiarism_score": 0.0, "matching_sources": []}
 
 def _norm_list_of_dicts(val):
+    """Normalize list of dicts, ensuring each item is a dict."""
     if isinstance(val, list):
         return [x for x in val if isinstance(x, dict)]
     return []
+
+def _norm_citation(c):
+    """Normalize a single citation dict."""
+    if not isinstance(c, dict):
+        return {"reference": "Unknown", "valid": False}
+    
+    reference = c.get("raw") or c.get("cleaned_title") or c.get("reference") or "Unknown citation"
+    valid = bool(c.get("valid", False))
+    
+    return {"reference": str(reference), "valid": valid}
+
+def _norm_fact_check(f):
+    """Normalize a single fact check dict."""
+    if not isinstance(f, dict):
+        return {"claim": "Unknown claim", "status": "Unverified"}
+    
+    claim = f.get("claim") or "Unknown claim"
+    status_raw = f.get("status", "no_verdict")
+    
+    # Map status to user-friendly format
+    status_map = {
+        "verified": "Verified",
+        "contradicted": "Contradicted", 
+        "no_verdict": "Unverified",
+        "api_error": "Unverified"
+    }
+    status = status_map.get(status_raw, "Unverified")
+    
+    return {"claim": str(claim), "status": status}
 
 # ------------------ Routes ------------------
 
@@ -84,17 +115,9 @@ def analyze_document():
             fact_check_results = _norm_list_of_dicts(fact_check_results)
 
             # Format for frontend
-            formatted_citations = [{
-                "reference": (c.get("raw") or c.get("cleaned_title") or "Unknown citation"),
-                "valid": bool(c.get("valid", False))
-            } for c in citation_results]
+            formatted_citations = [_norm_citation(c) for c in citation_results]
 
-            formatted_facts = [{
-                "claim": f.get("claim", "Unknown claim"),
-                "status": ("Verified" if f.get("status") == "verified"
-                           else "Contradicted" if f.get("status") == "contradicted"
-                           else "Unverified")
-            } for f in fact_check_results]
+            formatted_facts = [_norm_fact_check(f) for f in fact_check_results]
 
             return jsonify({
                 "summary": summary,

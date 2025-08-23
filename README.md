@@ -12,6 +12,7 @@ A comprehensive full-stack application that analyzes research papers using AI-po
 - ✅ Secure user authentication system
 - ✅ Professional PDF report generation
 - ✅ Works completely offline (no API keys required for basic functionality)
+- ✅ Graceful fallbacks when external APIs are unavailable
 
 ## ✨ What This Application Does
 
@@ -71,6 +72,12 @@ Before you start, you need to install these tools on your computer:
    - Go to [git-scm.com](https://git-scm.com/download/win)
    - Download and install with default settings
 
+4. **Install PostgreSQL (Optional but Recommended)**
+   - Go to [postgresql.org](https://www.postgresql.org/download/windows/)
+   - Download and install PostgreSQL
+   - Remember the password you set for the `postgres` user
+   - Default settings are fine
+
 ### For Mac Users:
 
 1. **Install Python 3.10 or higher**
@@ -92,6 +99,13 @@ Before you start, you need to install these tools on your computer:
 3. **Install Git** (usually pre-installed)
    ```bash
    git --version
+   ```
+
+4. **Install PostgreSQL (Optional but Recommended)**
+   ```bash
+   # Using Homebrew
+   brew install postgresql
+   brew services start postgresql
    ```
 
 ### For Linux Users:
@@ -125,6 +139,20 @@ Before you start, you need to install these tools on your computer:
    sudo dnf install git
    ```
 
+4. **Install PostgreSQL (Optional but Recommended)**
+   ```bash
+   # Ubuntu/Debian
+   sudo apt install postgresql postgresql-contrib
+   sudo systemctl start postgresql
+   sudo systemctl enable postgresql
+   
+   # CentOS/RHEL/Fedora
+   sudo dnf install postgresql postgresql-server
+   sudo postgresql-setup --initdb
+   sudo systemctl start postgresql
+   sudo systemctl enable postgresql
+   ```
+
 ## 📥 Step 1: Download the Project
 
 1. **Open Terminal/Command Prompt**
@@ -145,7 +173,7 @@ Before you start, you need to install these tools on your computer:
 3. **Clone the repository**
    ```bash
    git clone <YOUR_REPOSITORY_URL>
-   cd ai-research-critic
+   cd research_paper_analysis-main
    ```
 
 ## ⚙️ Step 2: Backend Setup (Python/Flask)
@@ -177,48 +205,99 @@ pip install -r requirements.txt
 
 **⏳ This may take 2-5 minutes depending on your internet speed**
 
-### 2.4 Create Environment Configuration File
+### 2.4 Database Setup (PostgreSQL)
 
-Create a file named `.env` in the `backend` directory with this content:
+If you installed PostgreSQL, set up the database:
 
 ```bash
-# Create .env file (Windows)
-echo. > .env
+# Create the database
+createdb researchdb
 
-# Create .env file (Mac/Linux)
-touch .env
+# Or if you need to specify user/password:
+createdb -U postgres -h localhost researchdb
 ```
 
-Open the `.env` file with any text editor (Notepad, VS Code, etc.) and add:
+**Note**: The default configuration expects:
+- Username: `postgres`
+- Password: `root`
+- Database: `researchdb`
+- Host: `localhost`
+- Port: `5432`
+
+If your setup is different, update the `.env` file accordingly.
+
+### 2.5 Environment Setup
+
+Copy the example environment file and configure it:
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+```
+
+The `.env` file should contain exactly these values (as provided):
 
 ```env
-# Basic Configuration (Required)
-FLASK_ENV=development
-SECRET_KEY=your-super-secret-key-change-this-in-production
-JWT_SECRET_KEY=your-jwt-secret-key-change-this-too
+# =========================
+# Flask Configuration
+# =========================
+FLASK_ENV=production
+SECRET_KEY=7db4e3a1a3f94c8e8b73491f5c5c07d5b1e4f3b2fdbd48a7b6a2c0a3a9d3d45b
+JWT_SECRET_KEY=4d91af09c8b9455da8f2f4e8b29e0c2e9b4a99dc63ff6b40c287d7c8a1d63b7f
 
-# Database (SQLite - no setup needed)
-SQLALCHEMY_DATABASE_URI=sqlite:///instance/app.db
+# =========================
+# Database Configuration (PostgreSQL)
+# =========================
+SQLALCHEMY_DATABASE_URI=postgresql://postgres:root@localhost:5432/researchdb
 
-# File Upload Settings
-MAX_UPLOAD_MB=25
+# =========================
+# Upload and Storage Settings
+# =========================
 UPLOAD_DIR=uploads
 REPORT_DIR=reports
 CORPUS_DIR=corpus
+MAX_UPLOAD_MB=25
 ALLOWED_EXT=.pdf
 
-# AI Features
+# =========================
+# API Settings
+# =========================
+SEMANTIC_SCHOLAR_BASE=https://api.semanticscholar.org/graph/v1/paper/search
+SEMANTIC_SCHOLAR_FIELDS=title,authors,year,venue
+CROSSREF_API_KEY=your-crossref-api-key-here   # placeholder, not real
+
+# =========================
+# Google Fact Check API
+# =========================
+GOOGLE_FACTCHECK_SERVICE_ACCOUNT_FILE=C:\Users\jathi\Downloads\research_paper_analysis-main mk9\research_paper_analysis-main\backend\fact_check_key.json
+FACTCHECK_USE=service_account
+
+# =========================
+# Feature Flags
+# =========================
 USE_HF_SUMMARIZER=true
+HF_MODEL_NAME=facebook/bart-large-cnn
+HF_CACHE_DIR=./models_cache
 ALLOW_GUEST_UPLOADS=false
 
-# API Keys (Optional - see API Keys section below)
-# GOOGLE_API_KEY=your_google_api_key_here
-# CROSSREF_API_KEY=your_crossref_api_key_here
-# SEMANTIC_SCHOLAR_KEY=your_semantic_scholar_key_here
-# FACTCHECK_USE=api_key
+# =========================
+# JWT Settings
+# =========================
+JWT_ACCESS_TOKEN_EXPIRES=3600
+JWT_REFRESH_TOKEN_EXPIRES=2592000
+
+# =========================
+# Security & CORS
+# =========================
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
 
-### 2.5 Initialize Database
+**Important Notes:**
+- The API keys are placeholders and will work with graceful fallbacks
+- Only Google Fact Check requires a service account JSON file
+- The app will work without any real API keys
+
+### 2.6 Initialize Database
 ```bash
 # Initialize database migrations
 flask db init
@@ -230,9 +309,13 @@ flask db migrate -m "Initial migration"
 flask db upgrade
 ```
 
-### 2.6 Start Backend Server
+### 2.7 Start Backend Server
 ```bash
-python app.py
+# Set the Google Fact Check service account path (Windows)
+$env:FACTCHECK_SERVICE_ACCOUNT="C:\path\to\fact_check_key.json"
+
+# Start Flask
+flask run
 ```
 
 **✅ Success!** You should see:
@@ -299,287 +382,69 @@ If it doesn't open automatically, manually go to: `http://localhost:3000`
 
 ## 🔑 API Keys Setup (Optional but Recommended)
 
-The application works without API keys using mock data, but for real results, set up these APIs:
+The application works completely without API keys, but you can enhance functionality by adding real ones:
 
-### Google Fact Check API (for fact verification)
+### Google Fact Check API (Most Important)
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project or select existing one
+3. Enable "Fact Check Tools API"
+4. Create a service account and download the JSON key file
+5. Update the `GOOGLE_FACTCHECK_SERVICE_ACCOUNT_FILE` path in `.env`
 
-1. **Go to Google Cloud Console**: [console.cloud.google.com](https://console.cloud.google.com)
-2. **Create a new project** or select existing one
-3. **Enable the Fact Check Tools API**:
-   - Go to "APIs & Services" → "Library"
-   - Search for "Fact Check Tools API"
-   - Click "Enable"
-4. **Create API Key**:
-   - Go to "APIs & Services" → "Credentials"
-   - Click "Create Credentials" → "API Key"
-   - Copy the generated key
-5. **Add to backend/.env**:
-   ```env
-   GOOGLE_API_KEY=your_actual_api_key_here
-   FACTCHECK_USE=api_key
-   ```
+### Semantic Scholar API (Optional)
+1. Go to [Semantic Scholar](https://api.semanticscholar.org)
+2. Register for a free API key
+3. Add `SEMANTIC_SCHOLAR_KEY=your_key_here` to `.env`
 
-### Crossref API (for citation validation)
+### CrossRef API (Optional)
+1. Go to [CrossRef](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)
+2. Register for a free API key
+3. Add `CROSSREF_API_KEY=your_key_here` to `.env`
 
-1. **Go to Crossref**: [www.crossref.org/documentation/retrieve-metadata/rest-api/](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)
-2. **Register for API access** (free)
-3. **Get your API key**
-4. **Add to backend/.env**:
-   ```env
-   CROSSREF_API_KEY=your_crossref_api_key_here
-   ```
+## 🚀 Deployment Notes
 
-### Semantic Scholar API (for citation validation)
+For production deployment:
 
-1. **Go to Semantic Scholar API**: [api.semanticscholar.org](https://api.semanticscholar.org)
-2. **Register for API access**
-3. **Get your API key**
-4. **Add to backend/.env**:
-   ```env
-   SEMANTIC_SCHOLAR_KEY=your_semantic_scholar_key_here
-   ```
+1. **Set `FLASK_ENV=production`** in your `.env` file
+2. **Use proper PostgreSQL credentials** instead of the default ones
+3. **Keep your Google Fact Check service account JSON safe** and secure
+4. **Update CORS_ORIGINS** to include your production domain
+5. **Use a proper WSGI server** like Gunicorn instead of Flask's development server
 
-**After adding API keys, restart the backend server** (Ctrl+C then `python app.py`)
+## 🛠️ Troubleshooting
 
-## 🔧 Common Issues & Solutions
+### Common Issues:
 
-### ❌ "Python not found" or "pip not found"
-- **Solution**: Python not installed or not in PATH
-- **Fix**: Reinstall Python and check "Add to PATH" option
+1. **"Analysis failed: 'str' object has no attribute 'get'"**
+   - ✅ **FIXED**: The code now handles missing API keys gracefully
+   - The app will show placeholder results instead of crashing
 
-### ❌ "Node not found" or "npm not found"
-- **Solution**: Node.js not installed properly
-- **Fix**: Download and install Node.js from nodejs.org
+2. **Database connection errors**
+   - Make sure PostgreSQL is running
+   - Check your database credentials in `.env`
+   - Try: `sudo systemctl start postgresql` (Linux)
 
-### ❌ Backend won't start - "Module not found"
-- **Solution**: Dependencies not installed or virtual environment not activated
-- **Fix**: 
-  ```bash
-  cd backend
-  source venv/bin/activate  # Mac/Linux
-  venv\Scripts\activate     # Windows
-  pip install -r requirements.txt
-  ```
+3. **Port already in use**
+   - Kill the process using the port: `lsof -ti:5000 | xargs kill -9`
+   - Or use a different port: `flask run --port=5001`
 
-### ❌ Frontend won't start - "Dependencies not installed"
-- **Solution**: Node modules not installed
-- **Fix**:
-  ```bash
-  cd frontend
-  rm -rf node_modules package-lock.json
-  npm install
-  ```
+4. **Module not found errors**
+   - Make sure you're in the virtual environment: `(venv)` should be visible
+   - Reinstall dependencies: `pip install -r requirements.txt`
 
-### ❌ Database errors
-- **Solution**: Database not initialized
-- **Fix**:
-  ```bash
-  cd backend
-  flask db init
-  flask db migrate -m "Initial migration"
-  flask db upgrade
-  ```
+## 📞 Support
 
-### ❌ "CORS error" in browser
-- **Solution**: Backend not running or wrong URL
-- **Fix**: Ensure backend is running on `http://127.0.0.1:5000`
+If you encounter any issues:
+1. Check the troubleshooting section above
+2. Look at the console output for error messages
+3. Make sure all prerequisites are installed correctly
+4. Verify your `.env` file matches the example exactly
 
-### ❌ File upload fails
-- **Solution**: Check file size (max 25MB) and format (PDF only)
-- **Fix**: Use smaller PDF files or check file format
+## 🎯 What's New
 
-## 📁 Project Structure
-
-```
-ai-research-critic/
-├── 📂 backend/                 # Python Flask API
-│   ├── 📂 src/
-│   │   ├── 📂 models/          # Database models
-│   │   ├── 📂 routes/          # API endpoints
-│   │   ├── 📂 services/        # Business logic & AI services
-│   │   └── 📂 utils/           # Utility functions
-│   ├── 📂 uploads/             # Uploaded PDF files
-│   ├── 📂 reports/             # Generated analysis reports
-│   ├── 📂 corpus/              # Reference documents for plagiarism detection
-│   ├── 📄 app.py               # Main Flask application
-│   ├── 📄 config.py            # Configuration settings
-│   ├── 📄 requirements.txt     # Python dependencies
-│   └── 📄 .env                 # Environment variables (you create this)
-├── 📂 frontend/                # React TypeScript UI
-│   ├── 📂 src/
-│   │   ├── 📂 components/      # Reusable UI components
-│   │   ├── 📂 pages/          # Application pages
-│   │   ├── 📂 contexts/       # React contexts
-│   │   └── 📂 services/       # API communication
-│   ├── 📂 public/             # Static assets
-│   ├── 📄 package.json        # Node.js dependencies
-│   └── 📄 .env                # Frontend environment variables (you create this)
-└── 📄 README.md               # This file
-```
-
-## 🛠️ Tech Stack
-
-### Backend Technologies
-- **Python 3.10+** - Programming language
-- **Flask** - Web framework
-- **SQLAlchemy** - Database ORM
-- **SQLite** - Database (development)
-- **JWT** - Authentication
-- **PyMuPDF** - PDF processing
-- **HuggingFace Transformers** - AI text summarization
-- **scikit-learn** - Machine learning for plagiarism detection
-- **ReportLab** - PDF report generation
-
-### Frontend Technologies
-- **React 18** - UI framework
-- **TypeScript** - Type-safe JavaScript
-- **Tailwind CSS** - Styling framework
-- **React Router** - Navigation
-- **Axios** - HTTP client
-- **Recharts** - Data visualization
-
-## 🎯 Usage Guide
-
-### First Time Setup
-1. **Register Account**: Click "Sign Up" and create your account
-2. **Login**: Use your credentials to access the dashboard
-
-### Analyzing Papers
-1. **Go to Upload Page**: Click "Upload Document" in the navigation
-2. **Select PDF File**: Choose a research paper (max 25MB)
-3. **Wait for Processing**: Analysis takes 30-60 seconds
-4. **View Results**: See summary, plagiarism score, citations, and critique
-5. **Generate Report**: Download professional PDF reports
-6. **Manage History**: View previous analyses in your dashboard
-
-## 🔍 API Endpoints Reference
-
-### Authentication
-- `POST /auth/register` - Create new user account
-- `POST /auth/login` - User login
-- `POST /auth/refresh` - Refresh authentication token
-
-### Document Management
-- `POST /documents/upload` - Upload PDF file
-- `GET /documents/:id` - Get specific document details
-- `GET /documents` - List all user documents
-
-### Analysis
-- `POST /analysis/run` - Start analysis on uploaded document
-- `GET /analysis/:id` - Get analysis results
-- `GET /analysis` - List all user analyses
-
-### Reports
-- `POST /reports/:analysis_id/generate` - Generate PDF report
-- `GET /reports/:report_id/download` - Download generated report
-- `GET /reports` - List all user reports
-
-## 🌐 Production Deployment
-
-### Backend Deployment
-1. **Set production environment**:
-   ```env
-   FLASK_ENV=production
-   SECRET_KEY=strong-random-secret-key
-   JWT_SECRET_KEY=strong-random-jwt-key
-   ```
-
-2. **Use PostgreSQL database**:
-   ```env
-   SQLALCHEMY_DATABASE_URI=postgresql://user:password@localhost/dbname
-   ```
-
-3. **Deploy with Gunicorn**:
-   ```bash
-   pip install gunicorn
-   gunicorn -w 4 -b 0.0.0.0:5000 app:app
-   ```
-
-### Frontend Deployment
-1. **Build for production**:
-   ```bash
-   cd frontend
-   npm run build
-   ```
-
-2. **Update API URL**:
-   ```env
-   REACT_APP_API_URL=https://your-backend-domain.com
-   ```
-
-3. **Serve with nginx/Apache** or deploy to Vercel/Netlify
-
-## 🤝 Contributing
-
-1. **Fork the repository** on GitHub
-2. **Create a feature branch**: `git checkout -b feature-name`
-3. **Make your changes** and test thoroughly
-4. **Commit changes**: `git commit -m "Add feature description"`
-5. **Push to branch**: `git push origin feature-name`
-6. **Create Pull Request** on GitHub
-
-## 📜 License
-
-MIT License - see LICENSE file for details.
-
-## 🧪 Testing Your Setup
-
-After setup, verify everything works:
-
-1. **Run the automated tests:**
-   ```bash
-   cd backend
-   python simple_test.py
-   ```
-
-2. **Test the web interface:**
-   - Open `http://localhost:3000`
-   - Register a new account
-   - Upload a sample PDF
-   - Verify analysis completes
-
-3. **For detailed testing instructions:** See `TESTING_GUIDE.md`
-4. **For quick command reference:** See `QUICK_REFERENCE.md`
-
-## 🆘 Need Help?
-
-- **Check the troubleshooting section** above for common issues
-- **Read TESTING_GUIDE.md** for comprehensive testing instructions
-- **Ensure all prerequisites** are properly installed
-- **Verify both servers are running** (backend on :5000, frontend on :3000)
-- **Check console output** for error messages
-- **Try the automated setup scripts** if manual setup fails
-
----
-
-**🎉 Congratulations!** You now have a fully functional AI Research Critic application running locally. Upload a research paper and explore the powerful analysis features!
-
-## 📚 Additional Resources
-
-- **`QUICK_REFERENCE.md`** - Essential commands and troubleshooting
-- **`TESTING_GUIDE.md`** - Comprehensive testing instructions  
-- **`backend/.env.example`** - Backend configuration template
-- **`frontend/.env.example`** - Frontend configuration template
-- **`setup.sh`** - Automated setup for Mac/Linux
-- **`setup.bat`** - Automated setup for Windows
-
-## 🔄 Keeping Your Installation Updated
-
-To update the application with new features:
-
-```bash
-# Pull latest changes
-git pull origin main
-
-# Update backend dependencies
-cd backend
-source venv/bin/activate  # Mac/Linux
-venv\Scripts\activate     # Windows
-pip install -r requirements.txt
-flask db upgrade
-
-# Update frontend dependencies
-cd ../frontend
-npm install
-```
+- ✅ **Graceful API fallbacks**: App works without any API keys
+- ✅ **Robust error handling**: No more crashes from missing services
+- ✅ **Deployment-ready**: Production configuration included
+- ✅ **PostgreSQL support**: Better database performance
+- ✅ **Improved normalizers**: Consistent output formats
 
