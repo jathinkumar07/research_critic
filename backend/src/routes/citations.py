@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from src.services.citations_service import validate_citations, validate, clean_citation
+from src.services.citations_service import validate
 from src.services.pdf_service import extract_text_and_meta
 from src.models.document import Document
 
@@ -25,8 +25,10 @@ def validate_citations_endpoint():
                 return jsonify({"status": "success", "message": "No citations provided", "data": _empty_response()}), 200
 
             # Clean each citation before validating
-            cleaned_list = [clean_citation(c) for c in citations_list]
-            citations_data = validate_citations(cleaned_list)
+            cleaned_list = [str(c).strip() for c in citations_list]
+            # Use the validate function with concatenated citations
+            citations_text = "\n".join(cleaned_list)
+            citations_data = validate(citations_text)
             source_type = "citations_list"
 
         # 2️⃣ From document_id
