@@ -61,7 +61,7 @@ def _has_valid_credentials() -> bool:
 def _clean_query(s: str, max_len: int = 110) -> str:
     s = " ".join(s.split())
     s = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', s)  # control chars
-    s = s.replace('"', '"').replace('"', '"').replace(''', "'")
+    s = s.replace('"', '"').replace('"', '"').replace("'", "'")
     s = re.sub(r'\s+', ' ', s)
     # strip citation brackets and long numbers
     s = re.sub(r'\[[^\]]+\]', '', s)
