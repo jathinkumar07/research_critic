@@ -397,20 +397,26 @@ def analyze_paper():
             logger.info("Generating critique...")
             critique_result = critique_paper(text)
 
-            # Format response
+            # Format citations for frontend
+            formatted_citations = []
+            for citation_text, result in citation_results.items():
+                formatted_citations.append({
+                    "reference": citation_text,
+                    "valid": result != "Not Found" and not result.startswith("Error") and result != "API Timeout"
+                })
+            
+            # Format response to match frontend expectations
             response = {
-                "status": "success",
-                "data": {
-                    "document_info": {
-                        "title": title,
-                        "word_count": word_count,
-                        "pages_processed": "N/A"
-                    },
-                    "summary": summary,
-                    "plagiarism_score": plagiarism_result.get("plagiarism_score", 0.0),
-                    "plagiarism_details": plagiarism_result.get("details", ""),
-                    "citations": citation_results,
-                    "critique": critique_result
+                "summary": summary,
+                "plagiarism": plagiarism_result.get("plagiarism_score", 0.0),
+                "citations": formatted_citations,
+                "fact_check": {
+                    "facts": []  # Placeholder for fact checking functionality
+                },
+                "stats": {
+                    "word_count": word_count,
+                    "plagiarism_percent": plagiarism_result.get("plagiarism_score", 0.0),
+                    "citations_count": len(formatted_citations)
                 }
             }
 
