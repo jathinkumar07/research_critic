@@ -1,0 +1,9 @@
+flask==3.1.0
+flask-cors==5.0.1
+PyMuPDF==1.26.3
+transformers==4.55.0
+scikit-learn==1.7.1
+requests==2.32.3
+torch==2.8.0
+numpy==2.3.1
+python-dotenv==1.1.1
